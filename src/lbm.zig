@@ -21,8 +21,8 @@ const pop_weights: [n_pop]f32 = switch (vel_set_use) {
 const cs2: f32 = 1.0 / 3.0;
 const tau: f32 = 0.9;
 
-const domain_size: [dim]u32 = .{ 32, 32 };
-const array_size = domain_size[0] * domain_size[1] * (if (dim == 2) 1 else domain_size[2]);
+pub const domain_size: [dim]u32 = .{ 32, 32 };
+pub const array_size = domain_size[0] * domain_size[1] * (if (dim == 2) 1 else domain_size[2]);
 
 fn idx2pos(idx: usize) [dim]u32 {
     if (dim == 2) {
