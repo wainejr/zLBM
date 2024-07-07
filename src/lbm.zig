@@ -1,4 +1,6 @@
 const std = @import("std");
+const vtk = @import("vtk.zig");
+const utils = @import("utils.zig");
 const Allocator = std.mem.Allocator;
 
 const VelSet = enum { D2Q9 };
@@ -19,7 +21,7 @@ const pop_weights: [n_pop]f32 = switch (vel_set_use) {
     VelSet.D2Q9 => .{ 4.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0 },
 };
 const cs2: f32 = 1.0 / 3.0;
-const tau: f32 = 0.9;
+const tau: f32 = 0.55;
 
 pub const domain_size: [dim]u32 = .{ 32, 32 };
 pub const array_size = domain_size[0] * domain_size[1] * (if (dim == 2) 1 else domain_size[2]);
@@ -75,7 +77,7 @@ fn func_feq(rho: f32, u: [dim]f32, i: usize) f32 {
     // const ud = .{ u[0], u[1] };
     const popDir: [2]f32 = .{ @floatFromInt(pop_dir[i][0]), @floatFromInt(pop_dir[i][1]) };
     const uc: f32 = dot_prod(f32, &u, &popDir);
-    const uu: f32 = dot_prod(f32, &u, &popDir);
+    const uu: f32 = dot_prod(f32, &u, &u);
 
     return rho * pop_weights[i] * (1 + uc / cs2 + (uc * uc) / (2 * cs2 * cs2) - (uu) / (2 * cs2));
 }
@@ -158,10 +160,12 @@ pub fn streaming(popA_arr: []f32, popB_arr: []f32) void {
                 }
             }
             const posToU: [dim]u32 = .{ @intCast(posTo[0]), @intCast(posTo[1]) };
+            // std.debug.print("pop {} pos to {} {} pos {} {} dir {} {}\n", .{ i, posToU[0], posToU[1], pos[0], pos[1], popDir[0], popDir[1] });
 
             popB_arr[idxPop(posToU, @intCast(i))] = popA_arr[idxPop(pos, @intCast(i))];
         }
     }
+    std.debug.print("\n", .{});
 }
 
 const LBMArrays = struct {
@@ -174,16 +178,42 @@ const LBMArrays = struct {
     pub fn initialize(self: *const LBMArrays) void {
         for (0..array_size) |idx| {
             const pos = idx2pos(idx);
+            std.debug.print("pos {} {}\n", .{ pos[0], pos[1] });
 
-            self.ux[idx] = 0;
-            self.uy[idx] = 0;
             self.rho[idx] = 1;
+            const posF: [dim]f32 = .{ @floatFromInt(pos[0]), @floatFromInt(pos[1]) };
+            self.ux[idx] = 0.0001 * ((((domain_size[1] - 1) - posF[1]) * posF[1]) / (domain_size[1] - 1));
+            self.uy[idx] = 0;
 
+            const u: [dim]f32 = .{ self.ux[idx], self.uy[idx] };
             inline for (0..n_pop) |j| {
-                self.popA[idxPop(pos, j)] = pop_weights[j];
-                self.popB[idxPop(pos, j)] = pop_weights[j];
+                self.popA[idxPop(pos, j)] = func_feq(self.rho[idx], u, j);
+                self.popB[idxPop(pos, j)] = func_feq(self.rho[idx], u, j);
             }
         }
+    }
+
+    pub fn export_arrays(self: *const LBMArrays, allocator: std.mem.Allocator, time_step: u32) !void {
+        var buff: [50]u8 = undefined;
+        const buff_slice = buff[0..];
+
+        const rho_filename = try std.fmt.bufPrint(buff_slice, "output/rho{d:0>5}.vtk", .{time_step});
+        var rho_string = std.ArrayList(u8).init(allocator);
+        try vtk.export_array(&rho_string, self.rho, &domain_size);
+        try utils.writeArrayListToFile(rho_filename, &rho_string);
+        rho_string.deinit();
+
+        const ux_filename = try std.fmt.bufPrint(buff_slice, "output/ux{d:0>5}.vtk", .{time_step});
+        var ux_string = std.ArrayList(u8).init(allocator);
+        try vtk.export_array(&ux_string, self.ux, &domain_size);
+        try utils.writeArrayListToFile(ux_filename, &ux_string);
+        ux_string.deinit();
+
+        const uy_filename = try std.fmt.bufPrint(buff_slice, "output/uy{d:0>5}.vtk", .{time_step});
+        var uy_string = std.ArrayList(u8).init(allocator);
+        try vtk.export_array(&uy_string, self.uy, &domain_size);
+        try utils.writeArrayListToFile(uy_filename, &uy_string);
+        uy_string.deinit();
     }
 };
 
