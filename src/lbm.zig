@@ -21,7 +21,7 @@ const pop_weights: [n_pop]f32 = switch (vel_set_use) {
     VelSet.D2Q9 => .{ 4.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 9.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0 },
 };
 const cs2: f32 = 1.0 / 3.0;
-const tau: f32 = 0.55;
+const tau: f32 = 0.9;
 
 pub const domain_size: [dim]u32 = .{ 32, 32 };
 pub const array_size = domain_size[0] * domain_size[1] * (if (dim == 2) 1 else domain_size[2]);
@@ -43,7 +43,7 @@ fn pos2idx(pos: [dim]u32) usize {
 }
 
 fn idxPop(pos: [dim]u32, i: u8) usize {
-    return (pos2idx(pos)) * n_pop + i;
+    return i + n_pop * (pos[0] + pos[1] * domain_size[0]);
 }
 
 test "test Idx" {
@@ -138,7 +138,7 @@ pub fn collision(pop_arr: []f32, rho_arr: []f32, ux_arr: []f32, uy_arr: []f32) v
         }
         inline for (0..n_pop) |i| {
             const feq = func_feq(rho, u, i);
-            const f_coll = pop[i] + (pop[i] - feq) / tau;
+            const f_coll = pop[i] - (pop[i] - feq) / tau;
             pop_arr[idxPop(pos, i)] = f_coll;
         }
     }
@@ -182,7 +182,13 @@ const LBMArrays = struct {
 
             self.rho[idx] = 1;
             const posF: [dim]f32 = .{ @floatFromInt(pos[0]), @floatFromInt(pos[1]) };
-            self.ux[idx] = 0.0001 * ((((domain_size[1] - 1) - posF[1]) * posF[1]) / (domain_size[1] - 1));
+            const posNorm: [dim]f32 = .{ posF[0] / domain_size[0], posF[1] / domain_size[1] };
+            const velNorm = 0.01;
+            const ux = velNorm * std.math.sin(posNorm[0] * 2 * std.math.pi) * std.math.cos(posNorm[1] * 2 * std.math.pi);
+            const uy = -velNorm * std.math.cos(posNorm[0] * 2 * std.math.pi) * std.math.sin(posNorm[1] * 2 * std.math.pi);
+            self.ux[idx] = ux;
+            self.uy[idx] = uy;
+            self.ux[idx] = 0.01 * ((((domain_size[1] - 1) - posF[1]) * posF[1]) / (domain_size[1] - 1));
             self.uy[idx] = 0;
 
             const u: [dim]f32 = .{ self.ux[idx], self.uy[idx] };
