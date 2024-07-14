@@ -1,19 +1,4 @@
 const std = @import("std");
-const lbm = @import("lbm.zig");
-
-// const string header =
-//             "# vtk DataFile Version 3.0\nData\nBINARY\nDATASET STRUCTURED_POINTS\n"
-//             "DIMENSIONS "+to_string(Nx)+" "+to_string(Ny)+" "+to_string(Nz)+"\n"
-//             "ORIGIN "+to_string(origin.x)+" "+to_string(origin.y)+" "+to_string(origin.z)+"\n"
-//             "SPACING "+to_string(spacing)+" "+to_string(spacing)+" "+to_string(spacing)+"\n"
-//             "POINT_DATA "+to_string((ulong)Nx*(ulong)Ny*(ulong)Nz)+"\nSCALARS data "+vtk_type()+" "+to_string(dimensions())+"\nLOOKUP_TABLE default\n"
-//         ;
-//         T* data = new T[range()];
-//         parallel_for(length(), [&](ulong i) {
-//             for(uint d=0u; d<dimensions(); d++) {
-//                 data[i*(ulong)dimensions()+(ulong)d] = reverse_bytes((T)(unit_conversion_factor*reference(i, d))); // SoA <- AoS
-//             }
-//         });
 
 // Function to append formatted strings to the list
 fn appendFormatted(list: *std.ArrayList(u8), comptime format_string: []const u8, args: anytype) !void {
@@ -25,7 +10,7 @@ fn appendFormatted(list: *std.ArrayList(u8), comptime format_string: []const u8,
     try list.appendSlice(str_add);
 }
 
-pub fn export_array(vtk_string: *std.ArrayList(u8), arr: []const f32, dims: []const u32) !void {
+fn write_vtk_header(vtk_string: *std.ArrayList(u8), dims: []const u32) !void {
     const dims_use: [3]u32 = .{ dims[0], dims[1], if (dims.len < 3) 1 else dims[2] };
 
     try vtk_string.appendSlice("# vtk DataFile Version 3.0\nData\nBINARY\nDATASET STRUCTURED_POINTS\n");
@@ -49,10 +34,14 @@ pub fn export_array(vtk_string: *std.ArrayList(u8), arr: []const f32, dims: []co
     }
     try vtk_string.appendSlice("\n");
     // "POINT_DATA "+to_string((ulong)Nx*(ulong)Ny*(ulong)Nz)+
-    try appendFormatted(vtk_string, "POINT_DATA {}\n", .{dims_use[0] * dims_use[1] * dims_use[2]});
+    try appendFormatted(vtk_string, "POINT_DATA {}", .{dims_use[0] * dims_use[1] * dims_use[2]});
     // "\nSCALARS data "+vtk_type()+" "+to_string(dimensions())+"\nLOOKUP_TABLE default\n"
-    try vtk_string.appendSlice("SCALARS data float 1\n");
-    try vtk_string.appendSlice("LOOKUP_TABLE default\n");
+}
+
+fn write_vtk_data(vtk_string: *std.ArrayList(u8), scalar_name: []const u8, arr: []const f32) !void {
+    try appendFormatted(vtk_string, "\nSCALARS {s} float 1", .{scalar_name});
+    // std.debug.print("my string {s}\n", .{vtk_string.items});
+    try vtk_string.appendSlice("\nLOOKUP_TABLE default\n");
 
     // Write the scalar data in big-endian format
     var be_scalar: [4]u8 = undefined;
@@ -62,4 +51,44 @@ pub fn export_array(vtk_string: *std.ArrayList(u8), arr: []const f32, dims: []co
         const be_use: [4]u8 = .{ be_scalar[3], be_scalar[2], be_scalar[1], be_scalar[0] };
         try vtk_string.appendSlice(be_use[0..4]);
     }
+}
+
+pub fn write_vtk(vtk_string: *std.ArrayList(u8), kv_arr: std.StringArrayHashMap([]const f32), dims: []const u32) !void {
+    try write_vtk_header(vtk_string, dims);
+
+    var arr_size: usize = 1;
+    for (dims) |d| {
+        arr_size *= d;
+    }
+
+    var it = kv_arr.iterator();
+    while (it.next()) |entry| {
+        std.debug.assert(entry.value_ptr.len == arr_size);
+        try write_vtk_data(vtk_string, entry.key_ptr.*, entry.value_ptr.*);
+    }
+}
+
+test "export array" {
+    const utils = @import("utils.zig");
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    // Define a new ArrayHashMap with keys of type []const u8 (strings) and values of type i32 (integers)
+    var map = std.StringArrayHashMap([]const f32).init(allocator);
+    defer map.deinit();
+
+    const dims: [2]u32 = .{ 2, 4 };
+
+    inline for (.{ "rho", "ux" }) |macr| {
+        const my_arr: [8]f32 = .{ 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8 };
+        try map.put(macr, my_arr[0..my_arr.len]);
+    }
+    var data_wr = std.ArrayList(u8).init(allocator);
+
+    try write_vtk(&data_wr, map, &dims);
+
+    try utils.writeArrayListToFile("teste.vtk", &data_wr);
 }
