@@ -1,6 +1,7 @@
 const std = @import("std");
 const lbm = @import("lbm.zig");
 const vtk = @import("vtk.zig");
+const defs = @import("defines.zig");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,11 +14,11 @@ pub fn main() !void {
 
     try lbm_arrays.export_arrays(allocator, 0);
 
-    for (1..100) |time_step| {
+    for (1..(defs.n_steps + 1)) |time_step| {
         std.debug.print("Running time step {}...\n", .{time_step});
-        std.debug.print("rho {} ux {} uy {}...\n", .{ lbm_arrays.rho[0], lbm_arrays.ux[0], lbm_arrays.uy[0] });
+        std.debug.print("rho {} ux {} uy {}...\n", .{ lbm_arrays.rho[0], lbm_arrays.u[0][0], lbm_arrays.u[1][0] });
         lbm.run_time_step(lbm_arrays, @intCast(time_step));
-        if (time_step % 1 == 0) {
+        if (time_step % defs.freq_export == 0) {
             try lbm_arrays.export_arrays(allocator, @intCast(time_step));
             std.debug.print("Exported arrays in time step {}\n", .{time_step});
         }
