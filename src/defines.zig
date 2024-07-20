@@ -42,7 +42,7 @@ pub const pop_weights: [n_pop]f32 = switch (vel_set_use) {
 
 // Parameters
 pub const tau: f32 = 0.9;
-pub const domain_size: [dim]u32 = .{ 32, 96 };
-pub const vel_set_use = VelSet.D2Q9;
+pub const domain_size: [dim]u32 = .{ 32, 96, 32 };
+pub const vel_set_use = VelSet.D3Q19;
 pub const freq_export = 10;
 pub const n_steps = 50;

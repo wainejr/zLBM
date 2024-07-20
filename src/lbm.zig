@@ -112,7 +112,6 @@ pub fn streaming(popA_arr: []f32, popB_arr: []f32) void {
             popB_arr[fidx.idxPop(posToU, @intCast(i))] = popA_arr[fidx.idxPop(pos, @intCast(i))];
         }
     }
-    std.debug.print("\n", .{});
 }
 
 const LBMArrays = struct {

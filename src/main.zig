@@ -13,29 +13,21 @@ pub fn main() !void {
     lbm_arrays.initialize();
 
     try lbm_arrays.export_arrays(allocator, 0);
+    var timer = try std.time.Timer.start();
 
     for (1..(defs.n_steps + 1)) |time_step| {
-        std.debug.print("Running time step {}...\n", .{time_step});
-        std.debug.print("rho {} ux {} uy {}...\n", .{ lbm_arrays.rho[0], lbm_arrays.u[0][0], lbm_arrays.u[1][0] });
         lbm.run_time_step(lbm_arrays, @intCast(time_step));
         if (time_step % defs.freq_export == 0) {
             try lbm_arrays.export_arrays(allocator, @intCast(time_step));
             std.debug.print("Exported arrays in time step {}\n", .{time_step});
         }
     }
-    std.debug.print("Finished simulation!", .{});
+    const time_passed_nano: f32 = @floatFromInt(timer.lap());
+    const time_passed_sec: f32 = time_passed_nano / 1e9;
 
-    // // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const mlups: f32 = (defs.n_nodes * defs.n_steps) / (time_passed_sec * 1e6);
 
-    // // stdout is for the actual output of your application, for example if you
-    // // are implementing gzip, then only the compressed bytes should be sent to
-    // // stdout, not any debugging messages.
-    // const stdout_file = std.io.getStdOut().writer();
-    // var bw = std.io.bufferedWriter(stdout_file);
-    // const stdout = bw.writer();
-
-    // try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    // try bw.flush(); // don't forget to flush!
+    std.debug.print("Finished simulation!\n", .{});
+    std.debug.print("MLUPS {d:0.2}\n", .{mlups});
+    std.debug.print("Time elapsed {d:0.2}s\n", .{time_passed_sec});
 }
