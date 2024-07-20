@@ -86,7 +86,7 @@ pub fn streaming(idx: usize, pop: *[defs.n_pop]f32, popStream_arr: []f32) void {
         }
         // std.debug.print("pop {} pos to {} {} pos {} {} dir {} {}\n", .{ i, posToU[0], posToU[1], pos[0], pos[1], popDir[0], popDir[1] });
 
-        popStream_arr[fidx.idxPop(pos, @intCast(i))] = pop[i];
+        popStream_arr[fidx.idxPop(posToU, @intCast(i))] = pop[i];
     }
 }
 
@@ -155,7 +155,6 @@ const LBMArrays = struct {
 pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
     const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
     const popAux_arr = if (time_step % 2 == 1) lbm_arr.popA else lbm_arr.popB;
-    _ = popAux_arr;
 
     for (0..defs.n_nodes) |idx| {
         var pop: [defs.n_pop]f32 = undefined;
@@ -172,7 +171,7 @@ pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
         //     u[d] = lbm_arr.u[d][idx];
         // }
         collision(idx, &pop, rho, u);
-        streaming(idx, &pop, popMain_arr);
+        streaming(idx, &pop, popAux_arr);
     }
 }
 
