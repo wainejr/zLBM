@@ -88,9 +88,4 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
-
-    const waf = b.addWriteFiles();
-    waf.addCopyFileToSource(exe.getEmittedAsm(), "main.asm");
-    waf.step.dependOn(&exe.step);
-    b.getInstallStep().dependOn(&waf.step);
 }
