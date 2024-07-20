@@ -5,7 +5,7 @@ const defs = @import("defines.zig");
 const fidx = @import("idx.zig");
 const Allocator = std.mem.Allocator;
 
-fn dot_prod(comptime T: type, x: *const [defs.dim]T, y: *const [defs.dim]T) T {
+inline fn dot_prod(comptime T: type, x: *const [defs.dim]T, y: *const [defs.dim]T) T {
     var sum: T = 0;
     for (x, y) |i, j| {
         sum += i * j;
@@ -13,7 +13,7 @@ fn dot_prod(comptime T: type, x: *const [defs.dim]T, y: *const [defs.dim]T) T {
     return sum;
 }
 
-fn func_feq(rho: f32, u: [defs.dim]f32, i: usize) f32 {
+inline fn func_feq(rho: f32, u: [defs.dim]f32, i: usize) f32 {
     // const ud = .{ u[0], u[1] };
     var popDir: [defs.dim]f32 = undefined;
     inline for (0..defs.dim) |d| {
@@ -35,22 +35,18 @@ test "func_eq const" {
     }
 }
 
-pub fn macroscopics(idx: usize, pop: [defs.n_pop]f32, rho_arr: []f32, u_arr: [defs.dim][]f32) void {
-    var rho: f32 = 0;
-    for (pop) |p| {
-        rho += p;
+pub fn macroscopics(idx: usize, pop: *[defs.n_pop]f32, rho: *f32, u: *[defs.dim]f32) void {
+    _ = idx;
+    rho.* = 0;
+    inline for (pop) |p| {
+        rho.* += p;
     }
-    var u: [defs.dim]f32 = .{0} ** defs.dim;
+    u.* = .{0} ** defs.dim;
     inline for (0..defs.n_pop) |j| {
         inline for (0..defs.dim) |d| {
             const fdir: f32 = @floatFromInt(defs.pop_dir[j][d]);
-            u[d] += pop[j] * fdir / rho;
+            u.*[d] += pop[j] * fdir / rho.*;
         }
-    }
-
-    rho_arr[idx] = rho;
-    inline for (0..defs.dim) |d| {
-        u_arr[d][idx] = u[d];
     }
 }
 
@@ -66,7 +62,7 @@ pub fn collision(idx: usize, pop: *[defs.n_pop]f32, rho: f32, u: [defs.dim]f32) 
     }
 }
 
-pub fn streaming(idx: usize, pop: [defs.n_pop]f32, popStream_arr: []f32) void {
+pub fn streaming(idx: usize, pop: *[defs.n_pop]f32, popStream_arr: []f32) void {
     const pos = fidx.idx2pos(idx);
     for (0..defs.n_pop) |i| {
         // posTo = pos + defs.pop_dir[i]
@@ -90,7 +86,7 @@ pub fn streaming(idx: usize, pop: [defs.n_pop]f32, popStream_arr: []f32) void {
         }
         // std.debug.print("pop {} pos to {} {} pos {} {} dir {} {}\n", .{ i, posToU[0], posToU[1], pos[0], pos[1], popDir[0], popDir[1] });
 
-        popStream_arr[fidx.idxPop(posToU, @intCast(i))] = pop[i];
+        popStream_arr[fidx.idxPop(pos, @intCast(i))] = pop[i];
     }
 }
 
@@ -159,21 +155,24 @@ const LBMArrays = struct {
 pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
     const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
     const popAux_arr = if (time_step % 2 == 1) lbm_arr.popA else lbm_arr.popB;
+    _ = popAux_arr;
 
     for (0..defs.n_nodes) |idx| {
         var pop: [defs.n_pop]f32 = undefined;
         const pos = fidx.idx2pos(idx);
-        for (0..defs.n_pop) |j| {
+        inline for (0..defs.n_pop) |j| {
             pop[j] = popMain_arr[fidx.idxPop(pos, @intCast(j))];
         }
-        macroscopics(idx, pop, lbm_arr.rho, lbm_arr.u);
-        const rho = lbm_arr.rho[idx];
-        var u: [defs.dim]f32 = undefined;
-        inline for (0..defs.dim) |d| {
-            u[d] = lbm_arr.u[d][idx];
-        }
+        var rho: f32 = 0;
+        var u: [defs.dim]f32 = .{0} ** defs.dim;
+        macroscopics(idx, &pop, &rho, &u);
+        // const rho = lbm_arr.rho[idx];
+        // var u: [defs.dim]f32 = undefined;
+        // inline for (0..defs.dim) |d| {
+        //     u[d] = lbm_arr.u[d][idx];
+        // }
         collision(idx, &pop, rho, u);
-        streaming(idx, pop, popAux_arr);
+        streaming(idx, &pop, popMain_arr);
     }
 }
 

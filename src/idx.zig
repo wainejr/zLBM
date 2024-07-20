@@ -1,6 +1,6 @@
 const defs = @import("defines.zig");
 
-pub fn idx2pos(idx: usize) [defs.dim]u32 {
+pub inline fn idx2pos(idx: usize) [defs.dim]u32 {
     if (defs.dim == 2) {
         return .{ @intCast(idx % defs.domain_size[0]), @intCast(idx / defs.domain_size[0]) };
     } else {
@@ -8,7 +8,7 @@ pub fn idx2pos(idx: usize) [defs.dim]u32 {
     }
 }
 
-pub fn pos2idx(pos: [defs.dim]u32) usize {
+pub inline fn pos2idx(pos: [defs.dim]u32) usize {
     if (defs.dim == 2) {
         return pos[0] + pos[1] * defs.domain_size[0];
     } else {
@@ -16,7 +16,7 @@ pub fn pos2idx(pos: [defs.dim]u32) usize {
     }
 }
 
-pub fn idxPop(pos: [defs.dim]u32, i: u8) usize {
+pub inline fn idxPop(pos: [defs.dim]u32, i: u8) usize {
     return i + defs.n_pop * (pos[0] + pos[1] * defs.domain_size[0]);
 }
 
