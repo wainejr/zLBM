@@ -17,10 +17,10 @@ pub fn main() !void {
 
     for (1..(defs.n_steps + 1)) |time_step| {
         lbm.run_time_step(lbm_arrays, @intCast(time_step));
-        if (time_step % defs.freq_export == 0) {
-            try lbm_arrays.export_arrays(allocator, @intCast(time_step));
-            std.debug.print("Exported arrays in time step {}\n", .{time_step});
-        }
+        // if (time_step % defs.freq_export == 0) {
+        //     try lbm_arrays.export_arrays(allocator, @intCast(time_step));
+        //     std.debug.print("Exported arrays in time step {}\n", .{time_step});
+        // }
     }
     const time_passed_nano: f32 = @floatFromInt(timer.lap());
     const time_passed_sec: f32 = time_passed_nano / 1e9;
