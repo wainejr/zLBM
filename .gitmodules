@@ -1,0 +1,3 @@
+[submodule "zig-tracy"]
+	path = zig-tracy
+	url = https://github.com/cipharius/zig-tracy
