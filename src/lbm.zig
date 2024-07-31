@@ -44,9 +44,15 @@ pub fn macroscopics(idx: usize, pop: *[defs.n_pop]f32, rho: *f32, u: *[defs.dim]
     u.* = .{0} ** defs.dim;
     inline for (0..defs.n_pop) |j| {
         inline for (0..defs.dim) |d| {
+            if (defs.pop_dir[j][d] == 0) {
+                continue;
+            }
             const fdir: f32 = @floatFromInt(defs.pop_dir[j][d]);
-            u.*[d] += pop[j] * fdir / rho.*;
+            u.*[d] += pop[j] * fdir;
         }
+    }
+    inline for (0..defs.dim) |d| {
+        u.*[d] /= rho.*;
     }
 }
 
@@ -73,12 +79,8 @@ pub fn streaming(idx: usize, pop: *[defs.n_pop]f32, popStream_arr: []f32) void {
         var posTo: [defs.dim]i32 = undefined;
         inline for (0..defs.dim) |d| {
             posTo[d] = @intCast(pos[d]);
-            posTo[d] += popDir[d];
-            if (posTo[d] < 0) {
-                posTo[d] += @intCast(defs.domain_size[d]);
-            } else if (posTo[d] >= defs.domain_size[d]) {
-                posTo[d] -= @intCast(defs.domain_size[d]);
-            }
+            posTo[d] += popDir[d] + defs.domain_size[d];
+            posTo[d] = @mod(posTo[d], defs.domain_size[d]);
         }
         var posToU: [defs.dim]u32 = undefined;
         inline for (0..defs.dim) |d| {
