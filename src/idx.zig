@@ -17,7 +17,7 @@ pub inline fn pos2idx(pos: [defs.dim]u32) usize {
 }
 
 pub inline fn idxPop(pos: [defs.dim]u32, i: u8) usize {
-    return i + defs.n_pop * (pos[0] + pos[1] * defs.domain_size[0]);
+    return i + defs.n_pop * (pos2idx(pos));
 }
 
 test "test Idx" {
