@@ -13,7 +13,7 @@ inline fn dot_prod(comptime T: type, x: *const [defs.dim]T, y: *const [defs.dim]
     return sum;
 }
 
-inline fn func_feq(rho: f32, u: [defs.dim]f32, i: usize) f32 {
+inline fn func_feq(rho: f32, u: [defs.dim]f32, comptime i: usize) f32 {
     // const ud = .{ u[0], u[1] };
     var popDir: [defs.dim]f32 = undefined;
     inline for (0..defs.dim) |d| {
@@ -23,6 +23,27 @@ inline fn func_feq(rho: f32, u: [defs.dim]f32, i: usize) f32 {
     const uu: f32 = dot_prod(f32, &u, &u);
 
     return rho * defs.pop_weights[i] * (1 + uc / defs.cs2 + (uc * uc) / (2 * defs.cs2 * defs.cs2) - (uu) / (2 * defs.cs2));
+}
+
+inline fn source_term(u: [defs.dim]f32, force: [defs.dim]f32, comptime i: usize) f32 {
+    // const ud = .{ u[0], u[1] };
+    var popDir: [defs.dim]f32 = undefined;
+    inline for (0..defs.dim) |d| {
+        popDir[d] = @floatFromInt(defs.pop_dir[i][d]);
+    }
+    var si: f32 = 0;
+    const mul_term = (1 - 2 / defs.tau) * defs.pop_weights[i];
+    inline for (0..defs.dim) |alfa| {
+        const cia = popDir[alfa];
+        si += mul_term * cia / defs.cs2 * force[alfa];
+        inline for (0..defs.dim) |beta| {
+            const cib = popDir[beta];
+            const ciab = cia * cib;
+            const k_dirac: f32 = if (alfa == beta) 1 else 0;
+            si += mul_term * force[alfa] * (u[beta] * (ciab - defs.cs2 * k_dirac) / (defs.cs2 * defs.cs2));
+        }
+    }
+    return si;
 }
 
 test "func_eq const" {
@@ -37,7 +58,6 @@ test "func_eq const" {
 
 pub fn macroscopics(idx: usize, pop: *[defs.n_pop]f32, rho: *f32, u: *[defs.dim]f32, force: *[defs.dim]f32) void {
     _ = idx;
-    _ = force;
     rho.* = 0;
     inline for (pop) |p| {
         rho.* += p;
@@ -53,18 +73,23 @@ pub fn macroscopics(idx: usize, pop: *[defs.n_pop]f32, rho: *f32, u: *[defs.dim]
         }
     }
     inline for (0..defs.dim) |d| {
+        u.*[d] += force.*[d] / 2;
+    }
+
+    inline for (0..defs.dim) |d| {
         u.*[d] /= rho.*;
     }
 }
 
 //  Open Security Training 2
 
-pub fn collision(idx: usize, pop: *[defs.n_pop]f32, rho: f32, u: [defs.dim]f32) void {
+pub fn collision(idx: usize, pop: *[defs.n_pop]f32, rho: f32, u: [defs.dim]f32, force: [defs.dim]f32) void {
     _ = idx;
 
     inline for (0..defs.n_pop) |i| {
         const feq = func_feq(rho, u, i);
-        const f_coll = pop[i] - (pop[i] - feq) / defs.tau;
+        const si = source_term(u, force, i);
+        const f_coll = pop[i] - (pop[i] - feq) / defs.tau + si;
         pop[i] = f_coll;
     }
 }
@@ -98,7 +123,7 @@ const LBMArrays = struct {
     popB: []f32,
     u: [defs.dim][]f32,
     rho: []f32,
-    force: [defs.dim][]f32,
+    force_ibm: [defs.dim][]f32,
 
     pub fn initialize(self: *const LBMArrays) void {
         for (0..defs.n_nodes) |idx| {
@@ -126,7 +151,7 @@ const LBMArrays = struct {
             var u: [defs.dim]f32 = undefined;
             inline for (0..defs.dim) |d| {
                 u[d] = self.u[d][idx];
-                self.force[d][idx] = 0;
+                self.force_ibm[d][idx] = 0;
             }
 
             inline for (0..defs.n_pop) |j| {
@@ -150,9 +175,9 @@ const LBMArrays = struct {
         inline for (0..defs.dim, u_names) |d, macr_name| {
             try map.put(macr_name, self.u[d]);
         }
-        const f_names: [defs.dim][]const u8 = if (defs.dim == 2) .{ "forcex", "forcey" } else .{ "forcex", "forcey", "forcez" };
+        const f_names: [defs.dim][]const u8 = if (defs.dim == 2) .{ "force_IBMx", "force_IBMy" } else .{ "force_IBMx", "force_IBMy", "force_IBMz" };
         inline for (0..defs.dim, f_names) |d, macr_name| {
-            try map.put(macr_name, self.force[d]);
+            try map.put(macr_name, self.force_ibm[d]);
         }
 
         const filename_use = try std.fmt.bufPrint(buff_slice, "output/macrs{d:0>5}.vtk", .{time_step});
@@ -174,6 +199,9 @@ pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
         var rho: f32 = 0;
         var u: [defs.dim]f32 = .{0} ** defs.dim;
         var force: [defs.dim]f32 = .{0} ** defs.dim;
+        inline for (0..defs.dim) |d| {
+            force[d] += defs.global_force[d];
+        }
         macroscopics(idx, &pop, &rho, &u, &force);
 
         lbm_arr.rho[idx] = rho;
@@ -181,7 +209,7 @@ pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
             lbm_arr.u[d][idx] = u[d];
         }
 
-        collision(idx, &pop, rho, u);
+        collision(idx, &pop, rho, u, force);
         streaming(idx, &pop, popAux_arr);
     }
 }
@@ -191,11 +219,11 @@ pub fn allocate_arrs(allocator: *const Allocator) !LBMArrays {
     const popB: []f32 = try allocator.alloc(f32, defs.n_nodes * defs.n_pop);
     const rho: []f32 = try allocator.alloc(f32, defs.n_nodes);
     var u: [defs.dim][]f32 = undefined;
-    var force: [defs.dim][]f32 = undefined;
+    var force_ibm: [defs.dim][]f32 = undefined;
     inline for (0..defs.dim) |d| {
         u[d] = try allocator.alloc(f32, defs.n_nodes);
-        force[d] = try allocator.alloc(f32, defs.n_nodes);
+        force_ibm[d] = try allocator.alloc(f32, defs.n_nodes);
     }
 
-    return LBMArrays{ .popA = popA, .popB = popB, .rho = rho, .u = u, .force = force };
+    return LBMArrays{ .popA = popA, .popB = popB, .rho = rho, .u = u, .force_ibm = force_ibm };
 }

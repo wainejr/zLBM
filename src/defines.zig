@@ -46,3 +46,4 @@ pub const domain_size: [dim]u32 = .{ 128, 128, 128 };
 pub const vel_set_use = VelSet.D3Q19;
 pub const freq_export = 10;
 pub const n_steps = 50;
+pub const global_force: [dim]f32 = .{ 1e-4, 0, 0 };
