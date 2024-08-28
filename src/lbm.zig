@@ -3,6 +3,7 @@ const vtk = @import("vtk.zig");
 const utils = @import("utils.zig");
 const defs = @import("defines.zig");
 const fidx = @import("idx.zig");
+const ibm = @import("ibm.zig");
 const Allocator = std.mem.Allocator;
 
 inline fn dot_prod(comptime T: type, x: *const [defs.dim]T, y: *const [defs.dim]T) T {
@@ -50,7 +51,7 @@ test "func_eq const" {
     const assert = std.debug.assert;
     const rho: f32 = 1;
     const u: [defs.dim]f32 = .{0} ** defs.dim;
-    for (0..defs.n_pop) |i| {
+    inline for (0..defs.n_pop) |i| {
         const feq = func_feq(rho, u, i);
         assert(feq == defs.pop_weights[i]);
     }
@@ -89,7 +90,7 @@ pub fn collision(idx: usize, pop: *[defs.n_pop]f32, rho: f32, u: [defs.dim]f32, 
     inline for (0..defs.n_pop) |i| {
         const feq = func_feq(rho, u, i);
         const si = source_term(u, force, i);
-        const f_coll = pop[i] - (pop[i] - feq) / defs.tau + si;
+        const f_coll = pop[i] - (pop[i] - feq) / defs.tau - si;
         pop[i] = f_coll;
     }
 }
@@ -119,13 +120,15 @@ pub fn streaming(idx: usize, pop: *[defs.n_pop]f32, popStream_arr: []f32) void {
 }
 
 const LBMArrays = struct {
+    const Self = @This();
+
     popA: []f32,
     popB: []f32,
     u: [defs.dim][]f32,
     rho: []f32,
     force_ibm: [defs.dim][]f32,
 
-    pub fn initialize(self: *const LBMArrays) void {
+    pub fn initialize(self: *const Self) void {
         for (0..defs.n_nodes) |idx| {
             const pos = fidx.idx2pos(idx);
             // std.debug.print("pos {} {}\n", .{ pos[0], pos[1] });s
@@ -142,7 +145,7 @@ const LBMArrays = struct {
             // const ux = velNorm * std.math.sin(posNorm[0] * 2 * std.math.pi) * std.math.cos(posNorm[1] * 2 * std.math.pi);
             // const uy = -velNorm * std.math.cos(posNorm[0] * 2 * std.math.pi) * std.math.sin(posNorm[1] * 2 * std.math.pi);
 
-            self.u[0][idx] = velNorm * ((((defs.domain_size[1] - 1) - posF[1]) * posF[1]) / (defs.domain_size[1] - 1));
+            self.u[0][idx] = velNorm * ((1 - posNorm[1]) * posNorm[1]);
             self.u[1][idx] = 0;
             if (defs.dim == 3) {
                 self.u[2][idx] = 0;
@@ -161,7 +164,29 @@ const LBMArrays = struct {
         }
     }
 
-    pub fn export_arrays(self: *const LBMArrays, allocator: std.mem.Allocator, time_step: u32) !void {
+    pub fn update_macroscopics(self: Self, pop_arr: []f32) void {
+        for (0..defs.n_nodes) |idx| {
+            var pop: [defs.n_pop]f32 = undefined;
+            const pos = fidx.idx2pos(idx);
+            inline for (0..defs.n_pop) |j| {
+                pop[j] = pop_arr[fidx.idxPop(pos, @intCast(j))];
+            }
+            var rho: f32 = 0;
+            var u: [defs.dim]f32 = .{0} ** defs.dim;
+            var force: [defs.dim]f32 = .{0} ** defs.dim;
+            inline for (0..defs.dim) |d| {
+                force[d] += defs.global_force[d];
+                force[d] += self.force_ibm[d][idx];
+            }
+            macroscopics(idx, &pop, &rho, &u, &force);
+            self.rho[idx] = rho;
+            inline for (0..defs.dim) |d| {
+                self.u[d][idx] = u[d];
+            }
+        }
+    }
+
+    pub fn export_arrays(self: *const Self, allocator: std.mem.Allocator, time_step: u32) !void {
         var buff: [50]u8 = undefined;
         const buff_slice = buff[0..];
 
@@ -182,9 +207,26 @@ const LBMArrays = struct {
 
         const filename_use = try std.fmt.bufPrint(buff_slice, "output/macrs{d:0>5}.vtk", .{time_step});
         try vtk.write_vtk(&data_wr, map, &defs.domain_size);
-        try utils.writeArrayListToFile(filename_use, &data_wr);
+        try utils.writeArrayListToFile(filename_use, data_wr.items);
     }
 };
+
+pub fn run_IBM_iteration(bodies: []const ibm.BodyIBM, lbm_arr: LBMArrays, time_step: u32) void {
+    const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
+    lbm_arr.update_macroscopics(popMain_arr);
+    for (bodies) |b| {
+        b.run_ibm(lbm_arr.rho, lbm_arr.u, lbm_arr.force_ibm);
+    }
+    lbm_arr.update_macroscopics(popMain_arr);
+}
+
+pub fn reset_forces(lbm_arr: LBMArrays) void {
+    for (0..defs.n_nodes) |idx| {
+        inline for (0..defs.dim) |d| {
+            lbm_arr.force_ibm[d][idx] = 0;
+        }
+    }
+}
 
 pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
     const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
@@ -201,6 +243,7 @@ pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
         var force: [defs.dim]f32 = .{0} ** defs.dim;
         inline for (0..defs.dim) |d| {
             force[d] += defs.global_force[d];
+            force[d] += lbm_arr.force_ibm[d][idx];
         }
         macroscopics(idx, &pop, &rho, &u, &force);
 

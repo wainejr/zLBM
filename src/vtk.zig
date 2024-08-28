@@ -1,14 +1,5 @@
 const std = @import("std");
-
-// Function to append formatted strings to the list
-fn appendFormatted(list: *std.ArrayList(u8), comptime format_string: []const u8, args: anytype) !void {
-    var buffer: [100]u8 = undefined;
-    const buffer_slice = buffer[0..];
-
-    const str_add = try std.fmt.bufPrint(buffer_slice, format_string, args);
-
-    try list.appendSlice(str_add);
-}
+const utils = @import("utils.zig");
 
 fn write_vtk_header(vtk_string: *std.ArrayList(u8), dims: []const u32) !void {
     const dims_use: [3]u32 = .{ dims[0], dims[1], if (dims.len < 3) 1 else dims[2] };
@@ -18,28 +9,28 @@ fn write_vtk_header(vtk_string: *std.ArrayList(u8), dims: []const u32) !void {
     // "DIMENSIONS "+to_string(Nx)+" "+to_string(Ny)+" "+to_string(Nz)+"\n"
     try vtk_string.appendSlice("DIMENSIONS ");
     for (dims_use) |d| {
-        try appendFormatted(vtk_string, "{} ", .{d});
+        try utils.appendFormatted(vtk_string, "{} ", .{d});
     }
     try vtk_string.appendSlice("\n");
     // "ORIGIN "+to_string(origin.x)+" "+to_string(origin.y)+" "+to_string(origin.z)+"\n"
     try vtk_string.appendSlice("ORIGIN ");
     for (dims_use) |_| {
-        try appendFormatted(vtk_string, "{} ", .{0});
+        try utils.appendFormatted(vtk_string, "{} ", .{0});
     }
     try vtk_string.appendSlice("\n");
     // "SPACING "+to_string(spacing)+" "+to_string(spacing)+" "+to_string(spacing)+"\n"
     try vtk_string.appendSlice("SPACING ");
     for (dims_use) |_| {
-        try appendFormatted(vtk_string, "{} ", .{1});
+        try utils.appendFormatted(vtk_string, "{} ", .{1});
     }
     try vtk_string.appendSlice("\n");
     // "POINT_DATA "+to_string((ulong)Nx*(ulong)Ny*(ulong)Nz)+
-    try appendFormatted(vtk_string, "POINT_DATA {}", .{dims_use[0] * dims_use[1] * dims_use[2]});
+    try utils.appendFormatted(vtk_string, "POINT_DATA {}", .{dims_use[0] * dims_use[1] * dims_use[2]});
     // "\nSCALARS data "+vtk_type()+" "+to_string(dimensions())+"\nLOOKUP_TABLE default\n"
 }
 
 fn write_vtk_data(vtk_string: *std.ArrayList(u8), scalar_name: []const u8, arr: []const f32) !void {
-    try appendFormatted(vtk_string, "\nSCALARS {s} float 1", .{scalar_name});
+    try utils.appendFormatted(vtk_string, "\nSCALARS {s} float 1", .{scalar_name});
     // std.debug.print("my string {s}\n", .{vtk_string.items});
     try vtk_string.appendSlice("\nLOOKUP_TABLE default\n");
 
@@ -69,8 +60,6 @@ pub fn write_vtk(vtk_string: *std.ArrayList(u8), kv_arr: std.StringArrayHashMap(
 }
 
 test "export array" {
-    const utils = @import("utils.zig");
-
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -90,5 +79,5 @@ test "export array" {
 
     try write_vtk(&data_wr, map, &dims);
 
-    try utils.writeArrayListToFile("teste.vtk", &data_wr);
+    try utils.writeArrayListToFile("teste.vtk", data_wr.items);
 }

@@ -44,6 +44,10 @@ pub const pop_weights: [n_pop]f32 = switch (vel_set_use) {
 pub const tau: f32 = 0.9;
 pub const domain_size: [dim]u32 = .{ 128, 128, 128 };
 pub const vel_set_use = VelSet.D3Q19;
-pub const freq_export = 10;
-pub const n_steps = 50;
+pub const freq_export = 1;
+pub const n_steps = 5;
 pub const global_force: [dim]f32 = .{ 1e-4, 0, 0 };
+
+// IBM parameters
+pub const forces_relaxation_factor = 0.5;
+pub const ibm_n_iterations = 5;

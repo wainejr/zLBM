@@ -1,7 +1,9 @@
 const std = @import("std");
 const lbm = @import("lbm.zig");
+const ibm = @import("ibm.zig");
 const vtk = @import("vtk.zig");
 const defs = @import("defines.zig");
+const utils = @import("utils.zig");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -11,14 +13,28 @@ pub fn main() !void {
 
     const lbm_arrays = try lbm.allocate_arrs(&allocator);
     lbm_arrays.initialize();
+    const body_ibm = try ibm.BodyIBM.create_basic_body(allocator);
+    try body_ibm.export_csv(allocator, "output/body_pos_0.csv");
+    const bodies: [1]ibm.BodyIBM = .{body_ibm};
 
     try lbm_arrays.export_arrays(allocator, 0);
     var timer = try std.time.Timer.start();
 
     for (1..(defs.n_steps + 1)) |time_step| {
         lbm.run_time_step(lbm_arrays, @intCast(time_step));
+        lbm.reset_forces(lbm_arrays);
+        for (0..defs.ibm_n_iterations) |_| {
+            lbm.run_IBM_iteration(bodies[0..], lbm_arrays, @intCast(time_step));
+        }
         if (time_step % defs.freq_export == 0) {
-            try lbm_arrays.export_arrays(allocator, @intCast(time_step));
+            try lbm_arrays.export_arrays(allocator, @intCast(time_step + 1));
+
+            var buffer: [100]u8 = undefined;
+            const buffer_slice = buffer[0..];
+
+            const body_path = try std.fmt.bufPrint(buffer_slice, "output/body_pos_{}.csv", .{time_step});
+            try body_ibm.export_csv(allocator, body_path);
+
             std.debug.print("Exported arrays in time step {}\n", .{time_step});
         }
     }
