@@ -169,22 +169,16 @@ pub const BodyIBM = struct {
         data_wr.clearAndFree();
     }
 
-    pub fn interpolate_macrs(self: Self, rho: []f32, u: [defs.dim][]f32) void {
+    pub fn interpolate_spread(self: Self, rho: []f32, u: [defs.dim][]f32, force: [defs.dim][]f32) void {
         for (0..self.nodes.len) |idx| {
             self.nodes[idx].interp(rho, u);
             self.nodes[idx].update_f_spread();
-        }
-    }
-
-    pub fn spread_force(self: Self, force: [defs.dim][]f32) void {
-        for (0..self.nodes.len) |idx| {
             self.nodes[idx].spread(force);
         }
     }
 
     pub fn run_ibm(self: *const Self, rho: []f32, u: [defs.dim][]f32, force: [defs.dim][]f32) void {
-        self.interpolate_macrs(rho, u);
-        self.spread_force(force);
+        self.interpolate_spread(rho, u, force);
     }
 };
 
@@ -213,7 +207,7 @@ test "interpolate body" {
     const lbm_arrays = try lbm.allocate_arrs(&allocator);
     lbm_arrays.initialize();
 
-    body.interpolate_macrs(lbm_arrays.rho, lbm_arrays.u);
+    body.interpolate_spread(lbm_arrays.rho, lbm_arrays.u, lbm_arrays.force_ibm);
 
     for (body.nodes) |node| {
         try std.testing.expectApproxEqAbs(1, node.dirac_sum, 0.01);

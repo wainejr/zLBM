@@ -103,19 +103,19 @@ pub fn streaming(idx: usize, pop: *[defs.n_pop]f32, popStream_arr: []f32) void {
         inline for (0..defs.dim) |d| {
             popDir[d] = @intCast(defs.pop_dir[i][d]);
         }
-        var posTo: [defs.dim]i32 = undefined;
+        var posFrom: [defs.dim]i32 = undefined;
         inline for (0..defs.dim) |d| {
-            posTo[d] = @intCast(pos[d]);
-            posTo[d] += popDir[d] + defs.domain_size[d];
-            posTo[d] = @mod(posTo[d], defs.domain_size[d]);
+            posFrom[d] = @intCast(pos[d]);
+            posFrom[d] -= popDir[d] + defs.domain_size[d];
+            posFrom[d] = @mod(posFrom[d], defs.domain_size[d]);
         }
-        var posToU: [defs.dim]u32 = undefined;
+        var posFromU: [defs.dim]u32 = undefined;
         inline for (0..defs.dim) |d| {
-            posToU[d] = @intCast(posTo[d]);
+            posFromU[d] = @intCast(posFrom[d]);
         }
         // std.debug.print("pop {} pos to {} {} pos {} {} dir {} {}\n", .{ i, posToU[0], posToU[1], pos[0], pos[1], popDir[0], popDir[1] });
 
-        popStream_arr[fidx.idxPop(posToU, @intCast(i))] = pop[i];
+        pop[i] = popStream_arr[fidx.idxPop(posFromU, @intCast(i))];
     }
 }
 
@@ -212,19 +212,13 @@ const LBMArrays = struct {
 };
 
 pub fn run_IBM_iteration(bodies: []const ibm.BodyIBM, lbm_arr: LBMArrays, time_step: u32) void {
-    const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
-    lbm_arr.update_macroscopics(popMain_arr);
+    _ = time_step;
+    if (bodies.len == 0) {
+        return;
+    }
+
     for (bodies) |b| {
         b.run_ibm(lbm_arr.rho, lbm_arr.u, lbm_arr.force_ibm);
-    }
-    lbm_arr.update_macroscopics(popMain_arr);
-}
-
-pub fn reset_forces(lbm_arr: LBMArrays) void {
-    for (0..defs.n_nodes) |idx| {
-        inline for (0..defs.dim) |d| {
-            lbm_arr.force_ibm[d][idx] = 0;
-        }
     }
 }
 
@@ -234,26 +228,40 @@ pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
 
     for (0..defs.n_nodes) |idx| {
         var pop: [defs.n_pop]f32 = undefined;
-        const pos = fidx.idx2pos(idx);
-        inline for (0..defs.n_pop) |j| {
-            pop[j] = popMain_arr[fidx.idxPop(pos, @intCast(j))];
-        }
+        streaming(idx, &pop, popMain_arr);
+
         var rho: f32 = 0;
         var u: [defs.dim]f32 = .{0} ** defs.dim;
         var force: [defs.dim]f32 = .{0} ** defs.dim;
+        var reset_forces = false;
         inline for (0..defs.dim) |d| {
             force[d] += defs.global_force[d];
-            force[d] += lbm_arr.force_ibm[d][idx];
+            const fibm = 0;
+            if (fibm != 0) {
+                force[d] += fibm;
+                reset_forces = true;
+            }
         }
         macroscopics(idx, &pop, &rho, &u, &force);
+        collision(idx, &pop, rho, u, force);
 
+        // Update populations
+        const pos = fidx.idx2pos(idx);
+        inline for (0..defs.n_pop) |j| {
+            popAux_arr[fidx.idxPop(pos, @intCast(j))] = pop[j];
+        }
+
+        // Update and save post collision macrs
+        macroscopics(idx, &pop, &rho, &u, &force);
         lbm_arr.rho[idx] = rho;
         inline for (0..defs.dim) |d| {
             lbm_arr.u[d][idx] = u[d];
         }
-
-        collision(idx, &pop, rho, u, force);
-        streaming(idx, &pop, popAux_arr);
+        if (reset_forces) {
+            inline for (0..defs.dim) |d| {
+                lbm_arr.force_ibm[d][idx] = 0;
+            }
+        }
     }
 }
 
