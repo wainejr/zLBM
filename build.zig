@@ -35,6 +35,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe.addIncludePath(b.path("OpenCL-Headers"));
+    exe.linkLibCpp();
+    exe.addLibraryPath(.{ .cwd_relative = "/usr/local/cuda/lib64" });
+    exe.linkSystemLibrary2("OpenCL", .{ .needed = true });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
