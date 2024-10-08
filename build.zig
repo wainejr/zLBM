@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.addIncludePath(b.path("OpenCL-Headers"));
-    exe.linkLibCpp();
+    exe.linkLibC();
     exe.addLibraryPath(.{ .cwd_relative = "/usr/local/cuda/lib64" });
     exe.linkSystemLibrary2("OpenCL", .{ .needed = true });
 
@@ -71,10 +71,14 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/cl.zig"),
         .target = target,
         .optimize = optimize,
     });
+    lib_unit_tests.addIncludePath(b.path("OpenCL-Headers"));
+    lib_unit_tests.linkLibC();
+    lib_unit_tests.addLibraryPath(.{ .cwd_relative = "/usr/local/cuda/lib64" });
+    lib_unit_tests.linkSystemLibrary2("OpenCL", .{ .needed = true });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
