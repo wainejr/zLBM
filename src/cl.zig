@@ -91,7 +91,9 @@ pub const CLBuffer = struct {
     }
 
     pub fn free(self: Self) void {
-        _ = c.clReleaseMemObject(self.d_buff);
+        if (c.clReleaseMemObject(self.d_buff) != c.CL_SUCCESS) {
+            std.log.err("Error on buffer free. {any}", .{self});
+        }
     }
 
     pub fn read(self: Self, h_buff: ?*anyopaque, cmd_queue: CLQueue) CLError!void {
@@ -173,9 +175,9 @@ pub const CLProgram = struct {
         return .{ .program = program };
     }
 
-    pub fn free(self: Self) CLError!void {
+    pub fn free(self: Self) void {
         if (c.clReleaseProgram(self.program) != c.CL_SUCCESS) {
-            return CLError.FreeProgramFailed;
+            std.log.err("Error on program free. {any}", .{self});
         }
     }
 };
@@ -197,7 +199,7 @@ test "test OpenCL program" {
     defer _ = c.clReleaseContext(ctx);
 
     const program = try CLProgram.init(ctx, device, program_src);
-    try program.free();
+    program.free();
 }
 
 pub const CLKernel = struct {
@@ -206,19 +208,145 @@ pub const CLKernel = struct {
     kernel: c.cl_kernel,
 
     pub fn init(program: CLProgram, kernel_name: []const u8) CLError!CLKernel {
-        const kernel = c.clCreateKernel(program, kernel_name, null);
+        const kernel = c.clCreateKernel(program.program, @ptrCast(kernel_name), null);
         if (kernel == null) {
             return CLError.CreateKernelFailed;
         }
         return .{ .kernel = kernel };
     }
 
-    pub fn free(self: Self) CLError!void {
+    pub fn free(self: Self) void {
         if (c.clReleaseKernel(self.kernel) != c.CL_SUCCESS) {
-            return CLError.FreeKernelFailed;
+            std.log.err("Error on kernel free. {any}", .{self});
         }
     }
 };
+
+pub const CLKernelCall = struct {
+    const Self = @This();
+    const ArgType = union(enum) {
+        int: i32,
+        float: f32,
+        buffer: CLBuffer,
+    };
+
+    kernel: CLKernel,
+    queue: CLQueue,
+
+    args: []ArgType,
+    work_dim: u32,
+    global_work_size: [3]usize,
+    local_work_size: [3]usize,
+
+    pub fn call(self: Self) CLError!void {
+        for (self.args, 0..) |arg, i| {
+            switch (arg) {
+                .int => |v| {
+                    if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(i32), &v) != c.CL_SUCCESS) {
+                        return CLError.SetKernelArgFailed;
+                    }
+                },
+                .float => |v| {
+                    if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(f32), &v) != c.CL_SUCCESS) {
+                        return CLError.SetKernelArgFailed;
+                    }
+                },
+                .buffer => |v| {
+                    if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(c.cl_mem), @ptrCast(&v.d_buff)) != c.CL_SUCCESS) {
+                        return CLError.SetKernelArgFailed;
+                    }
+                },
+            }
+        }
+        if (c.clEnqueueNDRangeKernel(self.queue.queue, self.kernel.kernel, self.work_dim, null, &self.global_work_size, &self.local_work_size, 0, null, null) != c.CL_SUCCESS) {
+            return CLError.EnqueueNDRangeKernel;
+        }
+    }
+};
+
+test "test OpenCL kernel" {
+    const program_src =
+        \\__kernel void square_array(__global int* input_array, __global int* output_array) {
+        \\    int i = get_global_id(0);
+        \\    int value = input_array[i];
+        \\    output_array[i] = value * value;
+        \\}
+    ;
+
+    const device = try cl_get_device();
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+
+    const program = try CLProgram.init(ctx, device, program_src);
+    defer program.free();
+    const kernel = try CLKernel.init(program, "square_array");
+    defer kernel.free();
+}
+
+test "test OpenCL kernel call" {
+    const program_src =
+        \\__kernel void square_array(__global int* input_array, __global int* output_array) {
+        \\    int i = get_global_id(0);
+        \\    int value = input_array[i];
+        \\    output_array[i] = value * value;
+        \\}
+    ;
+
+    const device = try cl_get_device();
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+    const queue = try CLQueue.init(ctx, device);
+
+    const program = try CLProgram.init(ctx, device, program_src);
+    defer program.free();
+    const kernel = try CLKernel.init(program, "square_array");
+    defer kernel.free();
+
+    // Create buffers
+    var input_array = init: {
+        var init_value: [1024]i32 = undefined;
+        for (0..1024) |i| {
+            init_value[i] = @as(i32, @intCast(i));
+        }
+        break :init init_value;
+    };
+    const input_buffer = try CLBuffer.init(1024 * @sizeOf(i32), ctx);
+    defer input_buffer.free();
+    try input_buffer.write(&input_array, queue);
+    const output_buffer = try CLBuffer.init(1024 * @sizeOf(i32), ctx);
+    defer output_buffer.free();
+
+    const ArgType = CLKernelCall.ArgType;
+    const args: [2]ArgType = .{
+        ArgType{ .buffer = input_buffer },
+        ArgType{ .buffer = output_buffer },
+    };
+
+    const kernel_call: CLKernelCall = .{
+        .kernel = kernel,
+        .queue = queue,
+        .args = @ptrCast(@constCast(&args)),
+        .global_work_size = .{ input_array.len, 0, 0 },
+        .local_work_size = .{ 64, 0, 0 },
+        .work_dim = 1,
+    };
+    try kernel_call.call();
+
+    var output_array: [1024]i32 = undefined;
+    try output_buffer.read(&output_array, queue);
+    for (output_array, 0..) |val, i| {
+        if (i % 100 == 0) {
+            try std.testing.expect(val == (i * i));
+            info("{} ^ 2 = {}", .{ i, val });
+        }
+    }
+}
 
 // fn run_test(device: c.cl_device_id) CLError!void {
 //     info("** running test **", .{});
