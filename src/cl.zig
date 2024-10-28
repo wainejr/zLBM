@@ -92,16 +92,16 @@ pub const CLBuffer = struct {
         _ = c.clReleaseMemObject(self.d_buff);
     }
 
-    pub fn read(self: Self, h_buff: []u8, cmd_queue: CLQueue) CLError!void {
+    pub fn read(self: Self, h_buff: ?*anyopaque, cmd_queue: CLQueue) CLError!void {
         // Fill input buffer
-        if (c.clEnqueueReadBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size, h_buff.ptr, 0, null, null) != c.CL_SUCCESS) {
+        if (c.clEnqueueReadBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size, h_buff, 0, null, null) != c.CL_SUCCESS) {
             return CLError.EnqueueReadBufferFailed;
         }
     }
 
-    pub fn write(self: Self, h_buff: *const []u8, cmd_queue: CLQueue) CLError!void {
+    pub fn write(self: Self, h_buff: ?*const anyopaque, cmd_queue: CLQueue) CLError!void {
         // Fill input buffer
-        if (c.clEnqueueWriteBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size, h_buff.ptr, 0, null, null) != c.CL_SUCCESS) {
+        if (c.clEnqueueWriteBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size, h_buff, 0, null, null) != c.CL_SUCCESS) {
             return CLError.EnqueueWriteBufferFailed;
         }
     }
@@ -145,8 +145,8 @@ test "memory buffer" {
         queue.free();
     }
 
-    try dbuff.write(@alignCast(@ptrCast(&hbuff_write)), queue);
-    try dbuff.read(@alignCast(@ptrCast(&hbuff_read)), queue);
+    try dbuff.write(&hbuff_write, queue);
+    try dbuff.read(&hbuff_read, queue);
     _ = c.clFlush(queue.queue);
     _ = c.clFinish(queue.queue);
 
