@@ -4,6 +4,17 @@ LBM (lattice Boltzmann method) solver written in Zig for learning purposes.
 
 The project is done by [Waine](https://github.com/wainejr/) and you can find the videos on its developing on his [YouTube](https://www.youtube.com/@waine_jr), in the [zLBM playlist](https://www.youtube.com/watch?v=BZobw0vnSHo&list=PL2WQTg3Tx5wO79IqfPwQhvgTqZsfIob9V).
 
+## Cloning
+
+Don't forget to clone and initialize the submodules
+
+```bash
+git clone --recursive https://github.com/wainejr/zLBM
+# or
+git clone https://github.com/wainejr/zLBM
+git submodule update --init --recursive
+```
+
 ## Building & Running
 
 To build the project, make sure you have [Zig](https://ziglang.org/) installed.
