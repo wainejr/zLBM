@@ -17,7 +17,9 @@ const CLError = error{
     CreateCommandQueueFailed,
     CreateProgramFailed,
     BuildProgramFailed,
+    FreeProgramFailed,
     CreateKernelFailed,
+    FreeKernelFailed,
     SetKernelArgFailed,
     EnqueueNDRangeKernel,
     CreateBufferFailed,
@@ -127,7 +129,7 @@ pub const CLQueue = struct {
     }
 };
 
-test "memory buffer" {
+test "test OpenCL memory buffer" {
     const device = try cl_get_device();
     const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
     if (ctx == null) {
@@ -165,26 +167,20 @@ pub const CLProgram = struct {
         if (program == null) {
             return CLError.CreateProgramFailed;
         }
-        defer _ = c.clReleaseProgram(program);
         if (c.clBuildProgram(program, 1, &device, null, null, null) != c.CL_SUCCESS) {
             return CLError.BuildProgramFailed;
         }
         return .{ .program = program };
     }
 
-    // var program_src_c: [*c]const u8 = program_src;
-    // const program = c.clCreateProgramWithSource(ctx, 1, &program_src_c, null, null); // future: last arg is error code
-    // if (program == null) {
-    //     return CLError.CreateProgramFailed;
-    // }
-    // defer _ = c.clReleaseProgram(program);
-    // if (c.clBuildProgram(program, 1, &device, null, null, null) != c.CL_SUCCESS) {
-    //     return CLError.BuildProgramFailed;
-    // }
-
+    pub fn free(self: Self) CLError!void {
+        if (c.clReleaseProgram(self.program) != c.CL_SUCCESS) {
+            return CLError.FreeProgramFailed;
+        }
+    }
 };
 
-test "program buffer" {
+test "test OpenCL program" {
     const program_src =
         \\__kernel void square_array(__global int* input_array, __global int* output_array) {
         \\    int i = get_global_id(0);
@@ -201,8 +197,28 @@ test "program buffer" {
     defer _ = c.clReleaseContext(ctx);
 
     const program = try CLProgram.init(ctx, device, program_src);
-    _ = program;
+    try program.free();
 }
+
+pub const CLKernel = struct {
+    const Self = @This();
+
+    kernel: c.cl_kernel,
+
+    pub fn init(program: CLProgram, kernel_name: []const u8) CLError!CLKernel {
+        const kernel = c.clCreateKernel(program, kernel_name, null);
+        if (kernel == null) {
+            return CLError.CreateKernelFailed;
+        }
+        return .{ .kernel = kernel };
+    }
+
+    pub fn free(self: Self) CLError!void {
+        if (c.clReleaseKernel(self.kernel) != c.CL_SUCCESS) {
+            return CLError.FreeKernelFailed;
+        }
+    }
+};
 
 // fn run_test(device: c.cl_device_id) CLError!void {
 //     info("** running test **", .{});
