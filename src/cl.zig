@@ -155,7 +155,54 @@ test "memory buffer" {
     try std.testing.expectEqual(3, hbuff_read[2]);
 }
 
-pub const CLKernel = struct {};
+pub const CLProgram = struct {
+    const Self = @This();
+
+    program: c.cl_program,
+
+    pub fn init(ctx: c.cl_context, device: c.cl_device_id, program_src_c: []const u8) CLError!Self {
+        const program = c.clCreateProgramWithSource(ctx, 1, @ptrCast(@constCast(&program_src_c.ptr)), null, null); // future: last arg is error code
+        if (program == null) {
+            return CLError.CreateProgramFailed;
+        }
+        defer _ = c.clReleaseProgram(program);
+        if (c.clBuildProgram(program, 1, &device, null, null, null) != c.CL_SUCCESS) {
+            return CLError.BuildProgramFailed;
+        }
+        return .{ .program = program };
+    }
+
+    // var program_src_c: [*c]const u8 = program_src;
+    // const program = c.clCreateProgramWithSource(ctx, 1, &program_src_c, null, null); // future: last arg is error code
+    // if (program == null) {
+    //     return CLError.CreateProgramFailed;
+    // }
+    // defer _ = c.clReleaseProgram(program);
+    // if (c.clBuildProgram(program, 1, &device, null, null, null) != c.CL_SUCCESS) {
+    //     return CLError.BuildProgramFailed;
+    // }
+
+};
+
+test "program buffer" {
+    const program_src =
+        \\__kernel void square_array(__global int* input_array, __global int* output_array) {
+        \\    int i = get_global_id(0);
+        \\    int value = input_array[i];
+        \\    output_array[i] = value * value;
+        \\}
+    ;
+
+    const device = try cl_get_device();
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+
+    const program = try CLProgram.init(ctx, device, program_src);
+    _ = program;
+}
 
 // fn run_test(device: c.cl_device_id) CLError!void {
 //     info("** running test **", .{});
