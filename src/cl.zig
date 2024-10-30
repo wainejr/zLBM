@@ -262,7 +262,7 @@ pub const CLKernelCall = struct {
                         return CLError.SetKernelArgFailed;
                     }
                 },
-                .buffer => |v| {
+                .ptr => |v| {
                     if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(c.cl_mem), @ptrCast(&@field(v, "d_buff"))) != c.CL_SUCCESS) {
                         return CLError.SetKernelArgFailed;
                     }
@@ -335,8 +335,8 @@ test "test OpenCL kernel call" {
 
     const ArgType = CLKernelCall.ArgType;
     const args: [2]ArgType = .{
-        ArgType{ .buffer = input_buffer },
-        ArgType{ .buffer = output_buffer },
+        ArgType{ .ptr = input_buffer },
+        ArgType{ .ptr = output_buffer },
     };
 
     const kernel_call: CLKernelCall = .{
