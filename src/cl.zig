@@ -1,5 +1,6 @@
 const std = @import("std");
 const info = std.log.info;
+const Allocator = std.mem.Allocator;
 
 const c = @cImport({
     @cDefine("CL_TARGET_OPENCL_VERSION", "110");
@@ -75,41 +76,51 @@ pub fn cl_get_device() CLError!c.cl_device_id {
     return device_ids[0];
 }
 
-pub const CLBuffer = struct {
-    const Self = @This();
+pub fn CLBuffer(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        const BufferType = T;
 
-    ctx: c.cl_context,
-    d_buff: c.cl_mem,
-    size: usize,
+        ctx: c.cl_context,
+        d_buff: c.cl_mem,
+        size: usize,
+        h_buff: ?[]T,
 
-    pub fn init(size: usize, ctx: c.cl_context) CLError!CLBuffer {
-        const input_buffer = c.clCreateBuffer(ctx, c.CL_MEM_READ_WRITE, size, null, null);
-        if (input_buffer == null) {
-            return CLError.CreateBufferFailed;
+        pub fn init(size: usize, ctx: c.cl_context) CLError!Self {
+            const input_buffer = c.clCreateBuffer(ctx, c.CL_MEM_READ_WRITE, size * @sizeOf(T), null, null);
+            if (input_buffer == null) {
+                return CLError.CreateBufferFailed;
+            }
+            return .{ .ctx = ctx, .d_buff = input_buffer.?, .size = size, .h_buff = null };
         }
-        return .{ .ctx = ctx, .d_buff = input_buffer.?, .size = size };
-    }
 
-    pub fn free(self: Self) void {
-        if (c.clReleaseMemObject(self.d_buff) != c.CL_SUCCESS) {
-            std.log.err("Error on buffer free. {any}", .{self});
+        pub fn allocate_host(self: *Self, allocator: *const Allocator) !void {
+            const buff = try allocator.alloc(T, self.size);
+            self.h_buff = buff;
         }
-    }
 
-    pub fn read(self: Self, h_buff: ?*anyopaque, cmd_queue: CLQueue) CLError!void {
-        // Fill input buffer
-        if (c.clEnqueueReadBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size, h_buff, 0, null, null) != c.CL_SUCCESS) {
-            return CLError.EnqueueReadBufferFailed;
+        pub fn free(self: Self) void {
+            if (c.clReleaseMemObject(self.d_buff) != c.CL_SUCCESS) {
+                std.log.err("Error on buffer free. {any}", .{self});
+            }
+            if (self.h_buff != null) {}
         }
-    }
 
-    pub fn write(self: Self, h_buff: ?*const anyopaque, cmd_queue: CLQueue) CLError!void {
-        // Fill input buffer
-        if (c.clEnqueueWriteBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size, h_buff, 0, null, null) != c.CL_SUCCESS) {
-            return CLError.EnqueueWriteBufferFailed;
+        pub fn read(self: Self, h_buff: ?*anyopaque, cmd_queue: CLQueue) CLError!void {
+            // Fill input buffer
+            if (c.clEnqueueReadBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size * @sizeOf(T), h_buff, 0, null, null) != c.CL_SUCCESS) {
+                return CLError.EnqueueReadBufferFailed;
+            }
         }
-    }
-};
+
+        pub fn write(self: Self, h_buff: ?*const anyopaque, cmd_queue: CLQueue) CLError!void {
+            // Fill input buffer
+            if (c.clEnqueueWriteBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size * @sizeOf(T), h_buff, 0, null, null) != c.CL_SUCCESS) {
+                return CLError.EnqueueWriteBufferFailed;
+            }
+        }
+    };
+}
 
 pub const CLQueue = struct {
     const Self = @This();
@@ -143,7 +154,7 @@ test "test OpenCL memory buffer" {
     var hbuff_read: [3]u8 = undefined;
 
     const queue = try CLQueue.init(ctx, device);
-    var dbuff = try CLBuffer.init(3, ctx);
+    var dbuff = try CLBuffer(u8).init(3, ctx);
     defer {
         dbuff.free();
         queue.free();
@@ -227,7 +238,7 @@ pub const CLKernelCall = struct {
     const ArgType = union(enum) {
         int: i32,
         float: f32,
-        buffer: CLBuffer,
+        ptr: CLBuffer(i32),
     };
 
     kernel: CLKernel,
@@ -252,7 +263,7 @@ pub const CLKernelCall = struct {
                     }
                 },
                 .buffer => |v| {
-                    if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(c.cl_mem), @ptrCast(&v.d_buff)) != c.CL_SUCCESS) {
+                    if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(c.cl_mem), @ptrCast(&@field(v, "d_buff"))) != c.CL_SUCCESS) {
                         return CLError.SetKernelArgFailed;
                     }
                 },
@@ -316,10 +327,10 @@ test "test OpenCL kernel call" {
         }
         break :init init_value;
     };
-    const input_buffer = try CLBuffer.init(1024 * @sizeOf(i32), ctx);
+    const input_buffer = try CLBuffer(i32).init(1024, ctx);
     defer input_buffer.free();
     try input_buffer.write(&input_array, queue);
-    const output_buffer = try CLBuffer.init(1024 * @sizeOf(i32), ctx);
+    const output_buffer = try CLBuffer(i32).init(1024, ctx);
     defer output_buffer.free();
 
     const ArgType = CLKernelCall.ArgType;

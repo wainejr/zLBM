@@ -11,7 +11,7 @@ pub fn main() !void {
 
     const allocator = arena.allocator();
 
-    const lbm_arrays = try lbm.allocate_arrs(&allocator);
+    const lbm_arrays = try lbm.LBMArrays.allocate(null, &allocator);
     lbm_arrays.initialize();
     // const body_ibm = try ibm.BodyIBM.create_basic_body(allocator);
     // try body_ibm.export_csv(allocator, "output/body_pos_0.csv");
