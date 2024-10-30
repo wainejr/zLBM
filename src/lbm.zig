@@ -51,68 +51,99 @@ pub const LBMArrays = struct {
     rho: cl.CLBuffer(f32),
     force_ibm: [defs.dim]cl.CLBuffer(f32),
 
-    pub fn allocate(ctx: c.cl_context, allocator: *const Allocator) !Self {
+    pub fn allocate(ctx: c.cl_context, allocator: Allocator) !Self {
         var popA = try cl.CLBuffer(f32).init(defs.n_nodes * defs.n_pop, ctx);
         try popA.allocate_host(allocator);
 
-        var popB = try cl.CLBuffer(f32).init(@sizeOf(f32) * defs.n_nodes * defs.n_pop, ctx);
+        var popB = try cl.CLBuffer(f32).init(defs.n_nodes * defs.n_pop, ctx);
         try popB.allocate_host(allocator);
 
-        var rho = try cl.CLBuffer(f32).init(@sizeOf(f32) * defs.n_nodes, ctx);
+        var rho = try cl.CLBuffer(f32).init(defs.n_nodes, ctx);
         try rho.allocate_host(allocator);
 
         var u: [defs.dim]cl.CLBuffer(f32) = undefined;
         var force_ibm: [defs.dim]cl.CLBuffer(f32) = undefined;
 
         inline for (0..defs.dim) |d| {
-            u[d] = try cl.CLBuffer(f32).init(@sizeOf(f32) * defs.n_nodes, ctx);
+            u[d] = try cl.CLBuffer(f32).init(defs.n_nodes, ctx);
             try u[d].allocate_host(allocator);
-            force_ibm[d] = try cl.CLBuffer(f32).init(@sizeOf(f32) * defs.n_nodes, ctx);
+            force_ibm[d] = try cl.CLBuffer(f32).init(defs.n_nodes, ctx);
             try force_ibm[d].allocate_host(allocator);
         }
 
         return LBMArrays{ .popA = popA, .popB = popB, .rho = rho, .u = u, .force_ibm = force_ibm };
     }
 
-    pub fn initialize(self: *const Self) void {
-        _ = self;
-        return;
-        // for (0..defs.n_nodes) |idx| {
-        //     // const pos = fidx.idx2pos(idx);
-        //     // std.debug.print("pos {} {}\n", .{ pos[0], pos[1] });s
-
-        //     // self.rho[idx] = 1;
-        //     // var posF: [defs.dim]f32 = undefined;
-        //     // var posNorm: [defs.dim]f32 = undefined;
-        //     // inline for (0..defs.dim) |d| {
-        //     //     posF[d] = @floatFromInt(pos[d]);
-        //     //     posNorm[d] = posF[d] / defs.domain_size[d];
-        //     // }
-
-        //     // const velNorm = 0.01;
-        //     // // const ux = velNorm * std.math.sin(posNorm[0] * 2 * std.math.pi) * std.math.cos(posNorm[1] * 2 * std.math.pi);
-        //     // // const uy = -velNorm * std.math.cos(posNorm[0] * 2 * std.math.pi) * std.math.sin(posNorm[1] * 2 * std.math.pi);
-
-        //     // self.u[0][idx] = velNorm * ((1 - posNorm[1]) * posNorm[1]);
-        //     // self.u[1][idx] = 0;
-        //     // if (defs.dim == 3) {
-        //     //     self.u[2][idx] = 0;
-        //     // }
-
-        //     // var u: [defs.dim]f32 = undefined;
-        //     // inline for (0..defs.dim) |d| {
-        //     //     u[d] = self.u[d][idx];
-        //     //     self.force_ibm[d][idx] = 0;
-        //     // }
-
-        //     // inline for (0..defs.n_pop) |j| {
-        //     //     self.popA[fidx.idxPop(pos, j)] = func_feq(self.rho[idx], u, j);
-        //     //     self.popB[fidx.idxPop(pos, j)] = func_feq(self.rho[idx], u, j);
-        //     // }
-        // }
+    pub fn free(self: Self) void {
+        self.popA.free();
+        self.popB.free();
+        self.rho.free();
+        for (0..defs.dim) |d| {
+            self.u[d].free();
+            self.force_ibm[d].free();
+        }
     }
 
-    pub fn export_arrays(self: *const Self, allocator: std.mem.Allocator, time_step: u32) !void {
+    pub fn sync_host2device(self: *const Self, queue: cl.CLQueue) !void {
+        try self.popA.host2device(queue);
+        try self.popB.host2device(queue);
+        try self.rho.host2device(queue);
+        for (0..defs.dim) |d| {
+            try self.u[d].host2device(queue);
+            try self.force_ibm[d].host2device(queue);
+        }
+    }
+
+    pub fn sync_device2host(self: *const Self, queue: cl.CLQueue) !void {
+        try self.popA.device2host(queue);
+        try self.popB.device2host(queue);
+        try self.rho.device2host(queue);
+        for (0..defs.dim) |d| {
+            try self.u[d].device2host(queue);
+            try self.force_ibm[d].device2host(queue);
+        }
+    }
+
+    pub fn initialize(self: *const Self, queue: cl.CLQueue) !void {
+        for (0..defs.n_nodes) |idx| {
+            const pos = fidx.idx2pos(idx);
+            // std.debug.print("pos {} {}\n", .{ pos[0], pos[1] });
+
+            self.rho.h_buff.?.items[idx] = 1;
+            var posF: [defs.dim]f32 = undefined;
+            var posNorm: [defs.dim]f32 = undefined;
+            inline for (0..defs.dim) |d| {
+                posF[d] = @floatFromInt(pos[d]);
+                posNorm[d] = posF[d] / defs.domain_size[d];
+            }
+
+            const velNorm = 0.01;
+            // const ux = velNorm * std.math.sin(posNorm[0] * 2 * std.math.pi) * std.math.cos(posNorm[1] * 2 * std.math.pi);
+            // const uy = -velNorm * std.math.cos(posNorm[0] * 2 * std.math.pi) * std.math.sin(posNorm[1] * 2 * std.math.pi);
+
+            self.u[0].h_buff.?.items[idx] = velNorm * ((1 - posNorm[1]) * posNorm[1]);
+            self.u[1].h_buff.?.items[idx] = 0;
+            if (defs.dim == 3) {
+                self.u[2].h_buff.?.items[idx] = 0;
+            }
+
+            var u: [defs.dim]f32 = undefined;
+            inline for (0..defs.dim) |d| {
+                u[d] = self.u[d].h_buff.?.items[idx];
+                self.force_ibm[d].h_buff.?.items[idx] = 0;
+            }
+
+            inline for (0..defs.n_pop) |j| {
+                self.popA.h_buff.?.items[fidx.idxPop(pos, j)] = func_feq(self.rho.h_buff.?.items[idx], u, j);
+                self.popB.h_buff.?.items[fidx.idxPop(pos, j)] = func_feq(self.rho.h_buff.?.items[idx], u, j);
+            }
+        }
+        try self.sync_host2device(queue);
+    }
+
+    pub fn export_arrays(self: *const Self, allocator: std.mem.Allocator, queue: cl.CLQueue, time_step: u32) !void {
+        try self.sync_device2host(queue);
+
         var buff: [50]u8 = undefined;
         const buff_slice = buff[0..];
 
@@ -121,14 +152,14 @@ pub const LBMArrays = struct {
         var data_wr = std.ArrayList(u8).init(allocator);
         defer data_wr.deinit();
 
-        try map.put("rho", @field(self, "rho").h_buff.?);
+        try map.put("rho", @field(self, "rho").h_buff.?.items);
         const u_names: [defs.dim][]const u8 = if (defs.dim == 2) .{ "ux", "uy" } else .{ "ux", "uy", "uz" };
         inline for (0..defs.dim, u_names) |d, macr_name| {
-            try map.put(macr_name, self.u[d].h_buff.?);
+            try map.put(macr_name, self.u[d].h_buff.?.items);
         }
         const f_names: [defs.dim][]const u8 = if (defs.dim == 2) .{ "force_IBMx", "force_IBMy" } else .{ "force_IBMx", "force_IBMy", "force_IBMz" };
         inline for (0..defs.dim, f_names) |d, macr_name| {
-            try map.put(macr_name, self.force_ibm[d].h_buff.?);
+            try map.put(macr_name, self.force_ibm[d].h_buff.?.items);
         }
 
         const filename_use = try std.fmt.bufPrint(buff_slice, "output/macrs{d:0>5}.vtk", .{time_step});
@@ -154,4 +185,24 @@ pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
     const popAux_arr = if (time_step % 2 == 1) lbm_arr.popA else lbm_arr.popB;
     _ = popMain_arr;
     _ = popAux_arr;
+}
+
+test "memory allocation OpenCL" {
+    const device = try cl.cl_get_device();
+    const allocator = std.testing.allocator;
+
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return cl.CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+
+    const queue = try cl.CLQueue.init(ctx, device);
+    defer queue.free();
+
+    const lbm_array = try LBMArrays.allocate(ctx, allocator);
+    defer lbm_array.free();
+
+    try lbm_array.initialize(queue);
+    try lbm_array.export_arrays(allocator, queue, 0);
 }

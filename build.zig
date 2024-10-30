@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/cl.zig"),
+        .root_source_file = b.path("src/lbm.zig"),
         .target = target,
         .optimize = optimize,
     });

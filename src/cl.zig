@@ -7,7 +7,7 @@ const c = @cImport({
     @cInclude("CL/cl.h");
 });
 
-const CLError = error{
+pub const CLError = error{
     GetPlatformsFailed,
     GetPlatformInfoFailed,
     NoPlatformsFound,
@@ -26,6 +26,7 @@ const CLError = error{
     CreateBufferFailed,
     EnqueueWriteBufferFailed,
     EnqueueReadBufferFailed,
+    HostBufferNull,
 };
 
 pub fn cl_get_device() CLError!c.cl_device_id {
@@ -84,7 +85,7 @@ pub fn CLBuffer(comptime T: type) type {
         ctx: c.cl_context,
         d_buff: c.cl_mem,
         size: usize,
-        h_buff: ?[]T,
+        h_buff: ?std.ArrayList(T),
 
         pub fn init(size: usize, ctx: c.cl_context) CLError!Self {
             const input_buffer = c.clCreateBuffer(ctx, c.CL_MEM_READ_WRITE, size * @sizeOf(T), null, null);
@@ -94,8 +95,11 @@ pub fn CLBuffer(comptime T: type) type {
             return .{ .ctx = ctx, .d_buff = input_buffer.?, .size = size, .h_buff = null };
         }
 
-        pub fn allocate_host(self: *Self, allocator: *const Allocator) !void {
-            const buff = try allocator.alloc(T, self.size);
+        pub fn allocate_host(self: *Self, allocator: Allocator) !void {
+            var buff = std.ArrayList(T).init(allocator);
+            try buff.ensureTotalCapacity(self.size);
+            buff.appendNTimesAssumeCapacity(0, self.size);
+
             self.h_buff = buff;
         }
 
@@ -103,7 +107,9 @@ pub fn CLBuffer(comptime T: type) type {
             if (c.clReleaseMemObject(self.d_buff) != c.CL_SUCCESS) {
                 std.log.err("Error on buffer free. {any}", .{self});
             }
-            if (self.h_buff != null) {}
+            if (self.h_buff != null) {
+                self.h_buff.?.deinit();
+            }
         }
 
         pub fn read(self: Self, h_buff: ?*anyopaque, cmd_queue: CLQueue) CLError!void {
@@ -118,6 +124,20 @@ pub fn CLBuffer(comptime T: type) type {
             if (c.clEnqueueWriteBuffer(cmd_queue.queue, self.d_buff, c.CL_TRUE, 0, self.size * @sizeOf(T), h_buff, 0, null, null) != c.CL_SUCCESS) {
                 return CLError.EnqueueWriteBufferFailed;
             }
+        }
+
+        pub fn host2device(self: Self, cmd_queue: CLQueue) CLError!void {
+            if (self.h_buff == null) {
+                return CLError.HostBufferNull;
+            }
+            try self.write(@ptrCast(self.h_buff.?.items), cmd_queue);
+        }
+
+        pub fn device2host(self: Self, cmd_queue: CLQueue) CLError!void {
+            if (self.h_buff == null) {
+                return CLError.HostBufferNull;
+            }
+            try self.read(@ptrCast(self.h_buff.?.items), cmd_queue);
         }
     };
 }
