@@ -4,20 +4,37 @@ const ibm = @import("ibm.zig");
 const vtk = @import("vtk.zig");
 const defs = @import("defines.zig");
 const utils = @import("utils.zig");
+const cl = @import("cl.zig");
+
+const c = @cImport({
+    @cDefine("CL_TARGET_OPENCL_VERSION", "110");
+    @cInclude("CL/cl.h");
+});
 
 pub fn main() !void {
+    const device = try cl.cl_get_device();
+
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return cl.CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+    const queue = try cl.CLQueue.init(ctx, device);
+    defer queue.free();
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
 
-    const lbm_arrays = try lbm.LBMArrays.allocate(null, &allocator);
-    lbm_arrays.initialize();
+    const lbm_arrays = try lbm.LBMArrays.allocate(null, allocator);
+    try lbm_arrays.initialize(queue);
+
     // const body_ibm = try ibm.BodyIBM.create_basic_body(allocator);
     // try body_ibm.export_csv(allocator, "output/body_pos_0.csv");
     const bodies: [0]ibm.BodyIBM = .{};
 
-    try lbm_arrays.export_arrays(allocator, 0);
+    try lbm_arrays.export_arrays(allocator, queue, 0);
     var timer = try std.time.Timer.start();
 
     for (1..(defs.n_steps + 1)) |time_step| {
@@ -27,7 +44,7 @@ pub fn main() !void {
             lbm.run_IBM_iteration(bodies[0..], lbm_arrays, @intCast(time_step));
         }
         if (time_step % defs.freq_export == 0) {
-            try lbm_arrays.export_arrays(allocator, @intCast(time_step));
+            try lbm_arrays.export_arrays(allocator, queue, @intCast(time_step));
 
             for (bodies) |b| {
                 var buffer: [100]u8 = undefined;
