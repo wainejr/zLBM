@@ -253,7 +253,7 @@ pub const LBMProgram = struct {
             .queue = queue,
             .kernel = kernel,
         };
-        try call.call();
+        // try call.call();
         return call;
     }
 
@@ -299,8 +299,7 @@ test "kernel call OpenCL" {
     try lbm_arr.initialize(queue);
 
     const kernel_call = try program.get_main_call(queue, lbm_arr, 0);
-    _ = kernel_call;
-    // try kernel_call.call();
+    try kernel_call.call();
 }
 
 pub fn run_IBM_iteration(bodies: []const ibm.BodyIBM, lbm_arr: LBMArrays, time_step: u32) void {
