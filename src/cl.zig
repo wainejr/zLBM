@@ -255,10 +255,11 @@ pub const CLKernel = struct {
 
 pub const CLKernelCall = struct {
     const Self = @This();
-    const ArgType = union(enum) {
+    pub const ArgType = union(enum) {
         int: i32,
         float: f32,
         ptr: CLBuffer(i32),
+        ptr_f32: CLBuffer(f32),
     };
 
     kernel: CLKernel,
@@ -283,6 +284,11 @@ pub const CLKernelCall = struct {
                     }
                 },
                 .ptr => |v| {
+                    if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(c.cl_mem), @ptrCast(&@field(v, "d_buff"))) != c.CL_SUCCESS) {
+                        return CLError.SetKernelArgFailed;
+                    }
+                },
+                .ptr_f32 => |v| {
                     if (c.clSetKernelArg(self.kernel.kernel, @intCast(i), @sizeOf(c.cl_mem), @ptrCast(&@field(v, "d_buff"))) != c.CL_SUCCESS) {
                         return CLError.SetKernelArgFailed;
                     }

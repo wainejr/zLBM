@@ -12,6 +12,7 @@ __kernel void lbm_kernel(
     __global float* force_ibm,
     const int time_step
 ) {
+    printf("")
     // streaming (popA, popB)
 
     // macroscopics

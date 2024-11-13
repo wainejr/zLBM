@@ -168,25 +168,6 @@ pub const LBMArrays = struct {
     }
 };
 
-pub fn run_IBM_iteration(bodies: []const ibm.BodyIBM, lbm_arr: LBMArrays, time_step: u32) void {
-    _ = time_step;
-    if (bodies.len == 0) {
-        return;
-    }
-    _ = lbm_arr;
-
-    // for (bodies) |b| {
-    //     b.run_ibm(lbm_arr.rho, lbm_arr.u, lbm_arr.force_ibm);
-    // }
-}
-
-pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
-    const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
-    const popAux_arr = if (time_step % 2 == 1) lbm_arr.popA else lbm_arr.popB;
-    _ = popMain_arr;
-    _ = popAux_arr;
-}
-
 test "memory allocation OpenCL" {
     const device = try cl.cl_get_device();
     const allocator = std.testing.allocator;
@@ -205,4 +186,138 @@ test "memory allocation OpenCL" {
 
     try lbm_array.initialize(queue);
     try lbm_array.export_arrays(allocator, queue, 0);
+}
+
+const LBM_source =
+    \\ __kernel void square_array(__global int* input_array, __global int* output_array) {
+    \\     int i = get_global_id(0);
+    \\     int value = input_array[i];
+    \\     output_array[i] = value * value;
+    \\ }
+    \\ 
+    \\ __kernel void lbm_kernel(
+    \\     __global float* popA,
+    \\     __global float* popB,
+    \\     __global float* rho,
+    \\     __global float* u,
+    \\     __global float* force_ibm,
+    \\     const int time_step
+    \\ ) {
+    \\     // printf("to aqui\n");
+    \\     // streaming (popA, popB)
+    \\ 
+    \\     // macroscopics
+    \\ 
+    \\     // collision
+    \\ 
+    \\     // macroscopics
+    \\ }
+;
+
+pub const LBMProgram = struct {
+    const Self = @This();
+
+    program: cl.CLProgram,
+    main_kernel: cl.CLKernel,
+
+    pub fn compile(ctx: c.cl_context, device: c.cl_device_id) !Self {
+        const program = try cl.CLProgram.init(ctx, device, LBM_source);
+        const kernel = try cl.CLKernel.init(program, "lbm_kernel");
+
+        return LBMProgram{ .program = program, .main_kernel = kernel };
+    }
+
+    pub fn get_main_call(self: Self, queue: cl.CLQueue, lbm_arr: LBMArrays, time_step: u32) !cl.CLKernelCall {
+        const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
+        const popAux_arr = if (time_step % 2 == 1) lbm_arr.popA else lbm_arr.popB;
+
+        const ArgType = cl.CLKernelCall.ArgType;
+        const args: [6]ArgType = .{
+            ArgType{ .ptr_f32 = popMain_arr },
+            ArgType{ .ptr_f32 = popAux_arr },
+            ArgType{ .ptr_f32 = lbm_arr.rho },
+            ArgType{ .ptr_f32 = lbm_arr.u[0] },
+            ArgType{ .ptr_f32 = lbm_arr.force_ibm[0] },
+            ArgType{ .int = @intCast(time_step) },
+        };
+        const kernel = self.main_kernel;
+        const work_dim: u32 = 1;
+        const global_work_size: [3]usize = .{ 1, 0, 0 };
+        const local_work_size: [3]usize = .{ 1, 0, 0 };
+
+        const call = cl.CLKernelCall{
+            .args = @ptrCast(@constCast(&args)),
+            .global_work_size = global_work_size,
+            .local_work_size = local_work_size,
+            .work_dim = work_dim,
+            .queue = queue,
+            .kernel = kernel,
+        };
+        try call.call();
+        return call;
+    }
+
+    pub fn free(self: Self) void {
+        self.program.free();
+        self.main_kernel.free();
+    }
+};
+
+test "program compilation OpenCL" {
+    const device = try cl.cl_get_device();
+
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return cl.CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+
+    const program = try LBMProgram.compile(ctx, device);
+    defer program.free();
+}
+
+test "kernel call OpenCL" {
+    const device = try cl.cl_get_device();
+    const allocator = std.testing.allocator;
+
+    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    if (ctx == null) {
+        return cl.CLError.CreateContextFailed;
+    }
+    defer _ = c.clReleaseContext(ctx);
+
+    const program = try LBMProgram.compile(ctx, device);
+    defer program.free();
+
+    const queue = try cl.CLQueue.init(ctx, device);
+    defer queue.free();
+
+    const lbm_arr = try LBMArrays.allocate(ctx, allocator);
+    defer lbm_arr.free();
+    std.debug.print("im heeeere\n", .{});
+
+    try lbm_arr.initialize(queue);
+
+    const kernel_call = try program.get_main_call(queue, lbm_arr, 0);
+    _ = kernel_call;
+    // try kernel_call.call();
+}
+
+pub fn run_IBM_iteration(bodies: []const ibm.BodyIBM, lbm_arr: LBMArrays, time_step: u32) void {
+    _ = time_step;
+    if (bodies.len == 0) {
+        return;
+    }
+    _ = lbm_arr;
+
+    // for (bodies) |b| {
+    //     b.run_ibm(lbm_arr.rho, lbm_arr.u, lbm_arr.force_ibm);
+    // }
+}
+
+pub fn run_time_step(lbm_arr: LBMArrays, time_step: u32) void {
+    const popMain_arr = if (time_step % 2 == 0) lbm_arr.popA else lbm_arr.popB;
+    const popAux_arr = if (time_step % 2 == 1) lbm_arr.popA else lbm_arr.popB;
+    _ = popMain_arr;
+    _ = popAux_arr;
 }
